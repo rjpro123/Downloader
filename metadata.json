@@ -1,0 +1,6 @@
+{
+  "name": "Downloader Pro",
+  "description": "High-performance download manager inspired by jDownloader with LinkGrabber, multi-segment HTTP Range chunking, speed limits, checksum verification, and archive extraction.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

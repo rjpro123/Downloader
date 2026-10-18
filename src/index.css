@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-matrix: #030706;
+    --surface-matrix: #060e0a;
+    --border-matrix: #0f2e1e;
+    --accent-matrix: #10b981;
+    --glow-matrix: rgba(16, 185, 129, 0.25);
+  }
+
+  body {
+    background-color: #030706;
+    color: #ecfdf5;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    background-image: 
+      radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.07) 0%, transparent 60%),
+      linear-gradient(rgba(16, 185, 129, 0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(16, 185, 129, 0.02) 1px, transparent 1px);
+    background-size: 100% 100%, 32px 32px, 32px 32px;
+  }
+}
+
+/* Matrix Terminal Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #030706;
+}
+::-webkit-scrollbar-thumb {
+  background: #0f2e1e;
+  border-radius: 2px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+/* Subtle CRT phosphor glow effect helper */
+.matrix-glow {
+  text-shadow: 0 0 8px rgba(16, 185, 129, 0.45);
+}
+
+.matrix-border-glow {
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15), inset 0 0 12px rgba(16, 185, 129, 0.05);
+}
