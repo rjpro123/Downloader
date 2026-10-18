@@ -716,6 +716,48 @@ export class DownloadManager extends EventEmitter {
     }
   }
 
+  async startDownload(options) {
+    const downloader = this.addDownload(options);
+    await downloader.start();
+    return downloader;
+  }
+
+  pauseDownload(id) {
+    const dl = this.downloads.get(id);
+    if (!dl) return false;
+    dl.pause();
+    return true;
+  }
+
+  resumeDownload(id) {
+    const dl = this.downloads.get(id);
+    if (!dl) return false;
+    dl.start();
+    return true;
+  }
+
+  cancelDownload(id) {
+    const dl = this.downloads.get(id);
+    if (!dl) return false;
+    dl.cancel();
+    this.downloads.delete(id);
+    return true;
+  }
+
+  async verifyChecksum(id, algorithm = 'sha256') {
+    const dl = this.downloads.get(id);
+    if (!dl) throw new Error('Download not found');
+    if (!fs.existsSync(dl.finalPath)) throw new Error('File does not exist yet');
+    const hash = crypto.createHash(algorithm);
+    await new Promise((resolve, reject) => {
+      const stream = fs.createReadStream(dl.finalPath);
+      stream.on('data', (d) => hash.update(d));
+      stream.on('end', resolve);
+      stream.on('error', reject);
+    });
+    return hash.digest('hex');
+  }
+
   setGlobalSpeedLimit(limitKbps) {
     this.globalSpeedLimitKbps = limitKbps;
     for (const dl of this.downloads.values()) {
@@ -723,3 +765,4 @@ export class DownloadManager extends EventEmitter {
     }
   }
 }
+

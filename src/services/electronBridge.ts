@@ -47,7 +47,10 @@ class UniversalBridge {
         'download:status',
         'download:completed',
         'download:error',
-        'archive:progress'
+        'archive:progress',
+        'torrent:progress',
+        'torrent:completed',
+        'torrent:error'
       ];
 
       eventTypes.forEach((evt) => {
@@ -225,6 +228,53 @@ class UniversalBridge {
     } catch (_) {
       return [];
     }
+  }
+
+  // --- Torrent Methods ---
+  async addTorrent(magnetURI: string): Promise<any> {
+    const res = await fetch('/api/torrents/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ magnetURI })
+    });
+    return res.json();
+  }
+
+  async getTorrents(): Promise<any[]> {
+    try {
+      const res = await fetch('/api/torrents/list');
+      const data = await res.json();
+      return data.torrents || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async pauseTorrent(infoHash: string): Promise<any> {
+    const res = await fetch(`/api/torrents/${infoHash}/pause`, { method: 'POST' });
+    return res.json();
+  }
+
+  async resumeTorrent(infoHash: string): Promise<any> {
+    const res = await fetch(`/api/torrents/${infoHash}/resume`, { method: 'POST' });
+    return res.json();
+  }
+
+  async removeTorrent(infoHash: string, deleteFiles = false): Promise<any> {
+    const res = await fetch(`/api/torrents/${infoHash}/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deleteFiles })
+    });
+    return res.json();
+  }
+
+  onTorrentProgress(callback: (data: any) => void): () => void {
+    return this._subscribe('torrent:progress', callback);
+  }
+
+  onTorrentCompleted(callback: (data: any) => void): () => void {
+    return this._subscribe('torrent:completed', callback);
   }
 
   // Event subscriptions

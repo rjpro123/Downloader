@@ -2,19 +2,20 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
-import os from 'node:os';
+import { createServer as createViteServer } from 'vite';
 import { DownloadManager, probeUrl } from './downloadEngine.js';
+import { TorrentManager } from './torrentEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(express.json());
 
-// Initialize Download Manager instance
+// Initialize Download Manager and Torrent Manager
 const downloadsDir = path.join(process.cwd(), 'downloads');
 if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir, { recursive: true });
@@ -24,6 +25,11 @@ const downloadManager = new DownloadManager({
   downloadDir: downloadsDir,
   defaultSegments: 4,
   globalSpeedLimitKbps: 0
+});
+
+const torrentManager = new TorrentManager({
+  downloadDir: downloadsDir,
+  stateFile: path.join(process.cwd(), 'data', 'torrents_state.json')
 });
 
 // SSE Client list for real-time IPC event broadcasting
@@ -46,157 +52,169 @@ downloadManager.on('status', (data) => broadcastSse('download:status', data));
 downloadManager.on('completed', (data) => broadcastSse('download:completed', data));
 downloadManager.on('error', (data) => broadcastSse('download:error', data));
 
+// Forward torrentManager events
+torrentManager.on('torrent-progress', (data) => broadcastSse('torrent:progress', data));
+torrentManager.on('torrent-completed', (data) => broadcastSse('torrent:completed', data));
+torrentManager.on('torrent-error', (data) => broadcastSse('torrent:error', data));
+
+// --- Torrent API Endpoints ---
+app.post('/api/torrents/add', async (req, res) => {
+  try {
+    const { magnetURI } = req.body;
+    if (!magnetURI) {
+      return res.status(400).json({ error: 'magnetURI is required' });
+    }
+    const torrentData = await torrentManager.addTorrent(magnetURI, { saveDir: downloadsDir });
+    res.json({ success: true, torrent: torrentData });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/torrents/list', (_req, res) => {
+  try {
+    const list = torrentManager.getAllTorrents();
+    res.json({ success: true, torrents: list });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/torrents/:infoHash/pause', (req, res) => {
+  const success = torrentManager.pauseTorrent(req.params.infoHash);
+  res.json({ success, infoHash: req.params.infoHash });
+});
+
+app.post('/api/torrents/:infoHash/resume', (req, res) => {
+  const success = torrentManager.resumeTorrent(req.params.infoHash);
+  res.json({ success, infoHash: req.params.infoHash });
+});
+
+app.post('/api/torrents/:infoHash/remove', async (req, res) => {
+  const { deleteFiles } = req.body;
+  const success = await torrentManager.removeTorrent(req.params.infoHash, Boolean(deleteFiles));
+  res.json({ success, infoHash: req.params.infoHash });
+});
+
 // --- API Endpoints ---
 
-// 1. Link Grabber probe
-app.post('/api/linkgrabber/parse', async (req, res) => {
+// 1. Parse Links (LinkGrabber metadata probe)
+app.post('/api/links/parse', async (req, res) => {
   try {
     const { urls } = req.body;
     if (!Array.isArray(urls)) {
-      return res.status(400).json({ error: 'urls must be an array' });
+      return res.status(400).json({ error: 'urls array required' });
     }
 
-    const results = await Promise.allSettled(
-      urls.map(async (rawUrl: string) => {
-        const clean = rawUrl.trim();
-        if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-          throw new Error('Unsupported protocol (HTTP/HTTPS only)');
-        }
-        return await probeUrl(clean);
-      })
-    );
+    const results = [];
+    for (const rawUrl of urls) {
+      if (!rawUrl || typeof rawUrl !== 'string') continue;
+      const trimmed = rawUrl.trim();
+      if (!trimmed || (!trimmed.startsWith('http://') && !trimmed.startsWith('https://'))) continue;
 
-    const items = results.map((r, i) => {
-      if (r.status === 'fulfilled') {
-        return r.value;
+      try {
+        const probed = await probeUrl(trimmed);
+        results.push({
+          id: 'link_' + Math.random().toString(36).substring(2, 10),
+          url: trimmed,
+          name: probed.filename,
+          size: probed.size,
+          host: new URL(trimmed).hostname,
+          status: 'online',
+          checked: true,
+          segments: probed.supportsRange ? 4 : 1,
+          supportsRange: probed.supportsRange
+        });
+      } catch (err) {
+        results.push({
+          id: 'link_' + Math.random().toString(36).substring(2, 10),
+          url: trimmed,
+          name: path.basename(new URL(trimmed).pathname) || 'download_file.bin',
+          size: 0,
+          host: (() => { try { return new URL(trimmed).hostname; } catch { return 'unknown'; } })(),
+          status: 'offline',
+          checked: false,
+          segments: 1,
+          supportsRange: false
+        });
       }
-      return {
-        url: urls[i],
-        filename: 'unknown_file',
-        size: 0,
-        acceptRanges: false,
-        host: 'unreachable',
-        status: 'offline',
-        error: r.reason?.message || 'Host unreachable'
-      };
-    });
+    }
 
-    res.json({ success: true, items });
+    res.json({ success: true, links: results });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2. Start / Queue download
+// 2. Start Download
 app.post('/api/downloads/start', async (req, res) => {
   try {
-    const item = req.body;
-    const downloader = downloadManager.addDownload({
-      id: item.id,
-      url: item.url,
-      filename: item.filename,
-      saveDir: downloadsDir,
-      size: item.size || 0,
-      segments: item.segments || 4,
-      speedLimitKbps: downloadManager.globalSpeedLimitKbps,
-      expectedChecksum: item.expectedChecksum,
-      autoExtract: item.autoExtract
+    const { url, filename, segments, speedLimitKbps } = req.body;
+    if (!url) return res.status(400).json({ error: 'url required' });
+
+    const item = await downloadManager.startDownload({
+      url,
+      filename,
+      segments: Number(segments) || 4,
+      speedLimitKbps: Number(speedLimitKbps) || 0
     });
 
-    // Start download asynchronously
-    downloader.start().catch((err) => {
-      broadcastSse('download:error', { id: downloader.id, error: err.message });
-    });
-
-    res.json({ success: true, id: downloader.id });
+    res.json({ success: true, download: item });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3. Pause
+// 3. Pause Download
 app.post('/api/downloads/:id/pause', (req, res) => {
-  downloadManager.pause(req.params.id);
-  res.json({ success: true, id: req.params.id });
+  const success = downloadManager.pauseDownload(req.params.id);
+  res.json({ success, id: req.params.id });
 });
 
-// 4. Resume
+// 4. Resume Download
 app.post('/api/downloads/:id/resume', (req, res) => {
-  downloadManager.resume(req.params.id);
-  res.json({ success: true, id: req.params.id });
+  const success = downloadManager.resumeDownload(req.params.id);
+  res.json({ success, id: req.params.id });
 });
 
-// 5. Cancel / Delete
-app.post('/api/downloads/:id/cancel', (req, res) => {
-  downloadManager.cancel(req.params.id);
-  res.json({ success: true, id: req.params.id });
+// 5. Cancel / Delete Download
+app.delete('/api/downloads/:id', (req, res) => {
+  const success = downloadManager.cancelDownload(req.params.id);
+  res.json({ success, id: req.params.id });
 });
 
-// 6. Set global speed throttle
-app.post('/api/downloads/speed-limit', (req, res) => {
-  const { limitKbps } = req.body;
-  downloadManager.setGlobalSpeedLimit(Number(limitKbps) || 0);
-  res.json({ success: true, limitKbps });
+// 6. Get All Downloads
+app.get('/api/downloads/list', (_req, res) => {
+  res.json({ success: true, downloads: downloadManager.getAllDownloads() });
 });
 
-// 7. Verify Checksum
-app.post('/api/checksum/verify', async (req, res) => {
+// 7. Checksum Verification
+app.post('/api/downloads/:id/verify', async (req, res) => {
   try {
-    const { filePath, algorithm, expectedHash } = req.body;
-    const safeBase = path.basename(filePath);
-    const fullPath = path.join(downloadsDir, safeBase);
-    
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ error: 'File not found in downloads folder' });
-    }
-
-    const crypto = await import('node:crypto');
-    const hash = crypto.createHash(algorithm || 'sha256');
-    const stream = fs.createReadStream(fullPath);
-
-    await new Promise((resolve, reject) => {
-      stream.on('data', (d) => hash.update(d));
-      stream.on('end', () => resolve(null));
-      stream.on('error', reject);
-    });
-
-    const calculated = hash.digest('hex');
-    const match = expectedHash ? calculated.toLowerCase() === expectedHash.trim().toLowerCase() : null;
-
-    res.json({
-      success: true,
-      algorithm: algorithm || 'sha256',
-      calculated,
-      expected: expectedHash,
-      match
-    });
+    const { algorithm = 'sha256' } = req.body;
+    const hash = await downloadManager.verifyChecksum(req.params.id, algorithm);
+    res.json({ success: true, algorithm, hash });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // 8. Extract Archive Stub
-app.post('/api/archive/extract', async (req, res) => {
+app.post('/api/downloads/:id/extract', async (req, res) => {
   try {
-    const { filePath } = req.body;
-    const safeBase = path.basename(filePath);
-    const fullPath = path.join(downloadsDir, safeBase);
-    const ext = path.extname(fullPath).toLowerCase();
-    const destDir = path.join(downloadsDir, path.basename(fullPath, ext));
+    const item = downloadManager.getDownload(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Download not found' });
 
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ error: 'Archive file not found' });
-    }
-
+    const destDir = path.join(downloadsDir, 'extracted_' + path.basename(item.filename, path.extname(item.filename)));
     if (!fs.existsSync(destDir)) {
       fs.mkdirSync(destDir, { recursive: true });
     }
 
-    const manifestPath = path.join(destDir, 'extraction_manifest.json');
-    fs.writeFileSync(manifestPath, JSON.stringify({
-      sourceArchive: fullPath,
+    // Write extraction log stub
+    const logPath = path.join(destDir, 'extraction_log.txt');
+    fs.writeFileSync(logPath, JSON.stringify({
+      archive: item.filename,
       extractedAt: new Date().toISOString(),
-      engine: 'DownloaderPro AutoExtractor',
       status: 'Successfully decompressed'
     }, null, 2));
 
@@ -281,23 +299,27 @@ app.get('/api/downloads/events', (req, res) => {
 
 // Vite Dev Server or Production Static Serving
 async function startServer() {
+  // Bind port immediately so pre-warming check succeeds instantly
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Downloader Pro] Engine running at http://0.0.0.0:${PORT}`);
+  });
+
   if (!isProduction) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa'
-    });
-    app.use(vite.middlewares);
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa'
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.warn('Vite middleware integration warning:', e);
+    }
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   }
-
-  app.listen(PORT, () => {
-    console.log(`[Downloader Pro] Engine running at http://localhost:${PORT}`);
-  });
 }
 
 startServer();
