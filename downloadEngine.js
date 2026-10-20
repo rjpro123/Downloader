@@ -1126,6 +1126,94 @@ export class DownloadManager extends EventEmitter {
     this.defaultSegments = defaultOptions.defaultSegments || 4;
     this.downloadDir = defaultOptions.downloadDir || path.join(process.cwd(), 'downloads');
     this.maxConcurrent = defaultOptions.maxConcurrent || 3;
+    this.stateFile = path.resolve(defaultOptions.stateFile || path.join(process.cwd(), 'data', 'downloads_state.json'));
+    this._ensureDataDir();
+    this._loadState();
+  }
+
+  _ensureDataDir() {
+    try {
+      const dataDir = path.dirname(this.stateFile);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      if (!fs.existsSync(this.downloadDir)) {
+        fs.mkdirSync(this.downloadDir, { recursive: true });
+      }
+    } catch (_) {}
+  }
+
+  _loadState() {
+    try {
+      if (fs.existsSync(this.stateFile)) {
+        const raw = fs.readFileSync(this.stateFile, 'utf-8');
+        const data = JSON.parse(raw);
+        if (Array.isArray(data)) {
+          data.forEach((item) => {
+            if (item.url) {
+              const downloader = new MultiSegmentDownloader({
+                url: item.url,
+                filename: item.filename,
+                saveDir: item.saveDir || this.downloadDir,
+                segments: item.segments || this.defaultSegments,
+                speedLimitKbps: this.globalSpeedLimitKbps
+              });
+              downloader.id = item.id || downloader.id;
+              downloader.totalBytes = item.size || 0;
+              downloader.downloadedBytes = item.downloadedBytes || (item.status === 'completed' ? item.size : 0);
+              downloader.status = item.status === 'completed' ? 'completed' : 'paused';
+              downloader.riskLevel = item.riskLevel || 'LOW';
+              downloader.isExecutable = item.isExecutable || false;
+              downloader.isCamouflaged = item.isCamouflaged || false;
+              downloader.isQuarantined = item.quarantined || false;
+              downloader.isAuthorized = item.authorized || false;
+
+              this.downloads.set(downloader.id, downloader);
+
+              downloader.on('progress', (data) => {
+                this.emit('progress', data);
+                this._saveState();
+              });
+              downloader.on('status', (data) => {
+                this.emit('status', data);
+                this._saveState();
+              });
+              downloader.on('completed', (data) => {
+                this.emit('completed', data);
+                this._saveState();
+              });
+              downloader.on('error', (data) => {
+                this.emit('error', data);
+                this._saveState();
+              });
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[DownloadManager] _loadState error:', err);
+    }
+  }
+
+  _saveState() {
+    try {
+      const items = Array.from(this.downloads.values()).map((dl) => ({
+        id: dl.id,
+        url: dl.url,
+        filename: dl.filename,
+        saveDir: dl.saveDir,
+        size: dl.totalBytes,
+        downloadedBytes: dl.downloadedBytes,
+        status: dl.status,
+        riskLevel: dl.riskLevel,
+        isExecutable: dl.isExecutable,
+        isCamouflaged: dl.isCamouflaged,
+        quarantined: dl.isQuarantined && !dl.isAuthorized,
+        authorized: dl.isAuthorized,
+        segments: dl.numSegments
+      }));
+      fs.writeFileSync(this.stateFile, JSON.stringify(items, null, 2));
+    } catch (_) {}
   }
 
   addDownload(options) {
@@ -1138,11 +1226,24 @@ export class DownloadManager extends EventEmitter {
 
     this.downloads.set(downloader.id, downloader);
 
-    downloader.on('progress', (data) => this.emit('progress', data));
-    downloader.on('status', (data) => this.emit('status', data));
-    downloader.on('completed', (data) => this.emit('completed', data));
-    downloader.on('error', (data) => this.emit('error', data));
+    downloader.on('progress', (data) => {
+      this.emit('progress', data);
+      this._saveState();
+    });
+    downloader.on('status', (data) => {
+      this.emit('status', data);
+      this._saveState();
+    });
+    downloader.on('completed', (data) => {
+      this.emit('completed', data);
+      this._saveState();
+    });
+    downloader.on('error', (data) => {
+      this.emit('error', data);
+      this._saveState();
+    });
 
+    this._saveState();
     return downloader;
   }
 
@@ -1192,6 +1293,7 @@ export class DownloadManager extends EventEmitter {
     if (dl) {
       dl.cancel();
       this.downloads.delete(id);
+      this._saveState();
     }
   }
 
@@ -1213,6 +1315,7 @@ export class DownloadManager extends EventEmitter {
     const dl = this.downloads.get(id);
     if (!dl) return false;
     dl.pause();
+    this._saveState();
     return true;
   }
 
@@ -1220,6 +1323,7 @@ export class DownloadManager extends EventEmitter {
     const dl = this.downloads.get(id);
     if (!dl) return false;
     dl.start();
+    this._saveState();
     return true;
   }
 
@@ -1228,6 +1332,7 @@ export class DownloadManager extends EventEmitter {
     if (!dl) return false;
     dl.cancel();
     this.downloads.delete(id);
+    this._saveState();
     return true;
   }
 

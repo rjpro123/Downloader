@@ -39,7 +39,8 @@ if (!fs.existsSync(downloadsDir)) {
 const downloadManager = new DownloadManager({
   downloadDir: downloadsDir,
   defaultSegments: 4,
-  globalSpeedLimitKbps: 0
+  globalSpeedLimitKbps: 0,
+  stateFile: path.join(process.cwd(), 'data', 'downloads_state.json')
 });
 
 const torrentManager = new TorrentManager({

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Terminal,
+  Download,
   HardDrive,
   Settings,
   FileCode,
@@ -58,14 +58,14 @@ export const Header: React.FC<HeaderProps> = ({
   const queuePercent = totalSize > 0 ? Math.round((totalDownloaded / totalSize) * 100) : 0;
 
   const speedPresets = [
-    { label: 'OVERCLOCK [UNCAPPED]', value: 0 },
-    { label: 'CLAMP: 500 KB/s', value: 500 },
-    { label: 'CLAMP: 1.0 MB/s', value: 1024 },
-    { label: 'CLAMP: 2.5 MB/s', value: 2560 },
-    { label: 'CLAMP: 5.0 MB/s', value: 5120 },
-    { label: 'CLAMP: 10.0 MB/s', value: 10240 },
-    { label: 'CLAMP: 25.0 MB/s', value: 25600 },
-    { label: 'CLAMP: 50.0 MB/s', value: 51200 }
+    { label: 'Uncapped', value: 0 },
+    { label: '500 KB/s', value: 500 },
+    { label: '1.0 MB/s', value: 1024 },
+    { label: '2.5 MB/s', value: 2560 },
+    { label: '5.0 MB/s', value: 5120 },
+    { label: '10.0 MB/s', value: 10240 },
+    { label: '25.0 MB/s', value: 25600 },
+    { label: '50.0 MB/s', value: 51200 }
   ];
 
   const handleApplyCustomSpeed = (e: React.FormEvent) => {
@@ -79,38 +79,38 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="bg-[#040906]/95 border-b border-emerald-950 sticky top-0 z-30 font-mono backdrop-blur-md">
-      {/* Top Bar Matrix Contract */}
-      <div className="flex items-center justify-between gap-4 px-6 py-2.5 border-b border-emerald-900/40">
-        {/* Zone 1: Terminal Wordmark */}
+    <header className="bg-[#0b0f19]/90 border-b border-[#212631] sticky top-0 z-30 backdrop-blur-md">
+      {/* Top Bar */}
+      <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-[#212631]">
+        {/* Logo / Title */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-8 h-8 rounded border border-emerald-500/40 bg-emerald-950/60 flex items-center justify-center text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
-            <Terminal className="w-4 h-4" />
+          <div className="w-8 h-8 rounded-lg bg-[#2ea043]/10 border border-[#2ea043]/30 flex items-center justify-center text-[#2ea043]">
+            <Download className="w-4 h-4" />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold tracking-wider text-emerald-300">
-              DOWNLOADER_PRO
+            <span className="text-sm font-semibold tracking-tight text-white">
+              Downloader Pro
             </span>
-            <span className="text-[10px] text-emerald-500/80 bg-emerald-950/80 border border-emerald-800/60 px-1.5 py-0.2 rounded font-mono">
-              {isDesktop ? 'DESKTOP_IPC' : 'KERNEL.v2.4'}
+            <span className="text-[10px] text-[#8b949e] bg-[#161b22] border border-[#30363d] px-2 py-0.5 rounded-full font-medium">
+              {isDesktop ? 'Desktop' : 'Web Client'}
             </span>
           </div>
         </div>
 
-        {/* Zone 2: Navigation Links */}
+        {/* Navigation Tabs */}
         <nav className="flex items-center gap-1 overflow-x-auto">
           <button
             onClick={() => setActiveTab('downloads')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all shrink-0 ${
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all shrink-0 font-medium ${
               activeTab === 'downloads'
-                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-semibold'
-                : 'text-emerald-500/70 border-transparent hover:text-emerald-300 hover:border-emerald-900/60 hover:bg-emerald-950/30'
+                ? 'bg-[#1f6feb]/15 text-[#58a6ff] border border-[#1f6feb]/40'
+                : 'text-[#8b949e] hover:text-white hover:bg-[#161b22]'
             }`}
           >
             <HardDrive className="w-3.5 h-3.5" />
-            <span>[DOWNLOADS]</span>
+            <span>Downloads</span>
             {downloadsCount > 0 && (
-              <span className="px-1 text-[10px] bg-emerald-900/80 text-emerald-300 border border-emerald-700/60 rounded">
+              <span className="px-1.5 py-0.2 text-[10px] bg-[#212631] text-white rounded-full">
                 {downloadsCount}
               </span>
             )}
@@ -118,16 +118,16 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setActiveTab('torrents')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all shrink-0 ${
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all shrink-0 font-medium ${
               activeTab === 'torrents'
-                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-semibold'
-                : 'text-emerald-500/70 border-transparent hover:text-emerald-300 hover:border-emerald-900/60 hover:bg-emerald-950/30'
+                ? 'bg-[#1f6feb]/15 text-[#58a6ff] border border-[#1f6feb]/40'
+                : 'text-[#8b949e] hover:text-white hover:bg-[#161b22]'
             }`}
           >
-            <Magnet className="w-3.5 h-3.5 text-emerald-400" />
-            <span>[TORRENTS]</span>
+            <Magnet className="w-3.5 h-3.5" />
+            <span>Torrents</span>
             {torrentsCount > 0 && (
-              <span className="px-1 text-[10px] bg-emerald-900/80 text-emerald-300 border border-emerald-700/60 rounded">
+              <span className="px-1.5 py-0.2 text-[10px] bg-[#212631] text-white rounded-full">
                 {torrentsCount}
               </span>
             )}
@@ -135,16 +135,16 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setActiveTab('linkgrabber')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all shrink-0 ${
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all shrink-0 font-medium ${
               activeTab === 'linkgrabber'
-                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-semibold'
-                : 'text-emerald-500/70 border-transparent hover:text-emerald-300 hover:border-emerald-900/60 hover:bg-emerald-950/30'
+                ? 'bg-[#1f6feb]/15 text-[#58a6ff] border border-[#1f6feb]/40'
+                : 'text-[#8b949e] hover:text-white hover:bg-[#161b22]'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>[LINK_GRABBER]</span>
+            <span>Link Grabber</span>
             {linkGrabberCount > 0 && (
-              <span className="px-1 text-[10px] bg-emerald-900/80 text-emerald-300 border border-emerald-700/60 rounded">
+              <span className="px-1.5 py-0.2 text-[10px] bg-[#212631] text-white rounded-full">
                 {linkGrabberCount}
               </span>
             )}
@@ -152,65 +152,64 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setActiveTab('security')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all shrink-0 ${
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all shrink-0 font-medium ${
               activeTab === 'security'
-                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-semibold'
-                : 'text-emerald-500/70 border-transparent hover:text-emerald-300 hover:border-emerald-900/60 hover:bg-emerald-950/30'
+                ? 'bg-[#1f6feb]/15 text-[#58a6ff] border border-[#1f6feb]/40'
+                : 'text-[#8b949e] hover:text-white hover:bg-[#161b22]'
             }`}
           >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>[SECURITY_AUDIT]</span>
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Security Vault</span>
             {quarantinedCount > 0 && (
-              <span className="px-1 text-[10px] bg-amber-900/80 text-amber-300 border border-amber-700/60 rounded animate-pulse">
-                {quarantinedCount} LOCK
+              <span className="px-1.5 py-0.2 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full">
+                {quarantinedCount}
               </span>
             )}
           </button>
 
           <button
             onClick={() => setActiveTab('source')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all shrink-0 ${
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all shrink-0 font-medium ${
               activeTab === 'source'
-                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-semibold'
-                : 'text-emerald-500/70 border-transparent hover:text-emerald-300 hover:border-emerald-900/60 hover:bg-emerald-950/30'
+                ? 'bg-[#1f6feb]/15 text-[#58a6ff] border border-[#1f6feb]/40'
+                : 'text-[#8b949e] hover:text-white hover:bg-[#161b22]'
             }`}
           >
             <FileCode className="w-3.5 h-3.5" />
-            <span>[ELECTRON]</span>
+            <span>Desktop Source</span>
           </button>
 
           <button
             onClick={() => setActiveTab('settings')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all shrink-0 ${
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all shrink-0 font-medium ${
               activeTab === 'settings'
-                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-semibold'
-                : 'text-emerald-500/70 border-transparent hover:text-emerald-300 hover:border-emerald-900/60 hover:bg-emerald-950/30'
+                ? 'bg-[#1f6feb]/15 text-[#58a6ff] border border-[#1f6feb]/40'
+                : 'text-[#8b949e] hover:text-white hover:bg-[#161b22]'
             }`}
           >
             <Settings className="w-3.5 h-3.5" />
-            <span>[CONFIG]</span>
+            <span>Settings</span>
           </button>
         </nav>
 
-        {/* Zone 3: Throttle Selector & Add Button */}
+        {/* Action Controls */}
         <div className="flex items-center gap-3 shrink-0">
-          {/* Rate Limiter */}
+          {/* Speed Throttle Menu */}
           <div className="relative">
             <button
               onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono text-emerald-300 bg-[#06120b] border border-emerald-800/80 rounded hover:border-emerald-500/60 transition-colors"
-              title="Matrix Bandwidth Throttle"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#c9d1d9] bg-[#161b22] border border-[#30363d] rounded-md hover:border-[#8b949e] transition-colors"
             >
-              <Gauge className="w-3.5 h-3.5 text-emerald-400" />
+              <Gauge className="w-3.5 h-3.5 text-[#8b949e]" />
               <span>
-                {speedLimitKbps > 0 ? `GOV: ${formatBytes(speedLimitKbps * 1024)}/s` : 'UNLIMITED SPEED'}
+                {speedLimitKbps > 0 ? `Limit: ${formatBytes(speedLimitKbps * 1024)}/s` : 'Speed: Uncapped'}
               </span>
             </button>
 
             {showSpeedMenu && (
-              <div className="absolute right-0 mt-2 w-64 bg-[#040a06] border border-emerald-700/80 rounded shadow-2xl py-1 z-50 text-xs font-mono">
-                <div className="px-3 py-1 text-[10px] text-emerald-600 uppercase border-b border-emerald-950 font-bold">
-                  // SET SPEED LIMIT (TOKEN BUCKET)
+              <div className="absolute right-0 mt-2 w-56 bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl py-1 z-50 text-xs">
+                <div className="px-3 py-1.5 text-[10px] uppercase font-semibold text-[#8b949e] border-b border-[#212631]">
+                  Speed Governor
                 </div>
                 {speedPresets.map((preset) => (
                   <button
@@ -219,31 +218,30 @@ export const Header: React.FC<HeaderProps> = ({
                       onSetSpeedLimit(preset.value);
                       setShowSpeedMenu(false);
                     }}
-                    className={`w-full text-left px-3 py-1.5 hover:bg-emerald-950 flex items-center justify-between transition-colors ${
+                    className={`w-full text-left px-3 py-2 hover:bg-[#212631] flex items-center justify-between transition-colors ${
                       speedLimitKbps === preset.value
-                        ? 'text-emerald-300 bg-emerald-950/70 font-semibold'
-                        : 'text-emerald-400/80'
+                        ? 'text-[#58a6ff] font-medium'
+                        : 'text-[#c9d1d9]'
                     }`}
                   >
                     <span>{preset.label}</span>
-                    {speedLimitKbps === preset.value && <span className="text-emerald-400">[*]</span>}
+                    {speedLimitKbps === preset.value && <span className="text-[#58a6ff]">✓</span>}
                   </button>
                 ))}
 
-                {/* Custom Input */}
-                <div className="p-2 border-t border-emerald-950 bg-[#020503]">
+                <div className="p-2 border-t border-[#212631] bg-[#0d1117]">
                   <form onSubmit={handleApplyCustomSpeed} className="flex gap-1.5">
                     <input
                       type="number"
                       min="0"
                       value={customSpeed}
                       onChange={(e) => setCustomSpeed(e.target.value)}
-                      placeholder="Custom KB/s..."
-                      className="w-full bg-[#040906] border border-emerald-900 rounded px-2 py-1 text-[11px] text-emerald-200 focus:outline-none focus:border-emerald-500"
+                      placeholder="KB/s limit..."
+                      className="w-full bg-[#161b22] border border-[#30363d] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#1f6feb]"
                     />
                     <button
                       type="submit"
-                      className="px-2 py-1 bg-emerald-500 text-black font-bold rounded text-[11px] hover:bg-emerald-400"
+                      className="px-2.5 py-1 bg-[#2ea043] text-white font-medium rounded text-xs hover:bg-[#2c974b]"
                     >
                       Set
                     </button>
@@ -255,60 +253,57 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={onOpenAddModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold text-black bg-emerald-400 hover:bg-emerald-300 rounded transition-all shadow-[0_0_12px_rgba(16,185,129,0.35)] cursor-pointer"
+            className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium text-white bg-[#2ea043] hover:bg-[#2c974b] rounded-md transition-all shadow-sm cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 stroke-[3]" />
-            <span>+ ADD DOWNLOAD</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Download</span>
           </button>
         </div>
       </div>
 
-      {/* Telemetry Sub-Bar */}
-      <div className="px-6 py-1.5 flex flex-wrap items-center justify-between gap-4 text-xs font-mono bg-[#020503] border-b border-emerald-950 text-emerald-500/80">
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-1.5">
-            <span className="text-emerald-700">&gt; CURRENT SPEED:</span>
-            <span className="text-emerald-300 font-bold tabular-nums">
+      {/* Telemetry Bar */}
+      <div className="px-6 py-2 flex flex-wrap items-center justify-between gap-4 text-xs bg-[#0d1117] border-b border-[#212631] text-[#8b949e]">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <span className="text-[#6e7681]">Speed:</span>
+            <span className="text-white font-semibold tabular-nums">
               {formatSpeed(globalSpeed)}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-emerald-700">&gt; CHUNK THREADS:</span>
-            <span className="text-emerald-400 tabular-nums">
-              {String(activeConnections).padStart(2, '0')} ACTIVE
+          <div className="flex items-center gap-2">
+            <span className="text-[#6e7681]">Active Threads:</span>
+            <span className="text-[#c9d1d9] tabular-nums font-medium">
+              {activeConnections}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-emerald-700">&gt; QUEUE HARVEST:</span>
-            <span className="text-emerald-300 tabular-nums">
+          <div className="flex items-center gap-2">
+            <span className="text-[#6e7681]">Transferred:</span>
+            <span className="text-white tabular-nums font-medium">
               {formatBytes(totalDownloaded)} / {formatBytes(totalSize)}
             </span>
             {totalSize > 0 && (
-              <span className="text-emerald-500 font-bold">[{queuePercent}%]</span>
+              <span className="text-[#58a6ff] font-medium">({queuePercent}%)</span>
             )}
           </div>
         </div>
 
-        {/* Global Action Triggers */}
         <div className="flex items-center gap-2">
           <button
             onClick={onStartAll}
-            className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#07170e] hover:bg-[#0c2617] border border-emerald-800/80 text-emerald-300 hover:text-emerald-200 transition-colors text-[11px]"
-            title="Resume all active downloads"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#161b22] hover:bg-[#212631] border border-[#30363d] text-[#c9d1d9] hover:text-white transition-colors text-xs font-medium"
           >
-            <Play className="w-3 h-3 text-emerald-400" />
-            <span>START ALL</span>
+            <Play className="w-3 h-3 text-[#2ea043]" />
+            <span>Start All</span>
           </button>
 
           <button
             onClick={onPauseAll}
-            className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#07170e] hover:bg-[#0c2617] border border-emerald-800/80 text-emerald-300 hover:text-emerald-200 transition-colors text-[11px]"
-            title="Pause all active downloads"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#161b22] hover:bg-[#212631] border border-[#30363d] text-[#c9d1d9] hover:text-white transition-colors text-xs font-medium"
           >
             <Pause className="w-3 h-3 text-amber-400" />
-            <span>PAUSE ALL</span>
+            <span>Pause All</span>
           </button>
         </div>
       </div>
