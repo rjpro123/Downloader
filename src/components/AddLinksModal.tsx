@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Clipboard, FileText, Sparkles, Terminal } from 'lucide-react';
+import { X, Clipboard, FileText, Sparkles, Terminal, AlertCircle } from 'lucide-react';
 import { bridge } from '../services/electronBridge';
 
 interface AddLinksModalProps {
@@ -25,6 +25,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
   const [packageName, setPackageName] = useState('PKG_MATRIX_01');
   const [segments, setSegments] = useState(4);
   const [autoExtract, setAutoExtract] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -33,8 +34,9 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
       const urls = await bridge.readClipboard();
       if (urls && urls.length > 0) {
         setUrlInput((prev) => (prev ? `${prev}\n${urls.join('\n')}` : urls.join('\n')));
+        setNotice(null);
       } else {
-        alert('No URLs detected in clipboard.');
+        setNotice('No valid URLs detected in clipboard.');
       }
     } catch (err) {
       console.error(err);
@@ -46,6 +48,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
       const urls = await bridge.openFileDialog();
       if (urls && urls.length > 0) {
         setUrlInput((prev) => (prev ? `${prev}\n${urls.join('\n')}` : urls.join('\n')));
+        setNotice(null);
       }
     } catch (err) {
       console.error(err);
@@ -58,6 +61,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
       const sampleUrls = samples.map((s) => s.url);
       setUrlInput(sampleUrls.join('\n'));
       setPackageName('PKG_BENCHMARK_STREAMS');
+      setNotice(null);
     }
   };
 
@@ -68,7 +72,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
       .filter((l) => l.startsWith('http://') || l.startsWith('https://'));
 
     if (lines.length === 0) {
-      alert('Please enter at least one valid HTTP or HTTPS download URL.');
+      setNotice('Please enter at least one valid HTTP or HTTPS download URL.');
       return;
     }
 
@@ -81,21 +85,22 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
     });
 
     setUrlInput('');
+    setNotice(null);
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm font-mono">
-      <div className="bg-[#040c07] border border-emerald-800/90 rounded max-w-xl w-full overflow-hidden shadow-[0_0_25px_rgba(16,185,129,0.2)]">
+      <div className="bg-[#040c07] border border-emerald-800/90 rounded-xl max-w-xl w-full overflow-hidden shadow-[0_0_25px_rgba(16,185,129,0.2)]">
         {/* Terminal Header */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-emerald-950 bg-[#020503]">
           <div className="flex items-center gap-2">
             <Terminal className="w-4 h-4 text-emerald-400" />
-            <h2 className="text-xs font-bold text-emerald-300">&gt; BUFFER_INGESTION // PARSE_URL_STREAM</h2>
+            <h2 className="text-xs font-bold text-emerald-300">&gt; INGESTION // PARSE_URL_STREAM</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded text-emerald-600 hover:text-emerald-300 hover:bg-emerald-950/60 transition-colors"
+            className="p-1 rounded text-emerald-600 hover:text-emerald-300 hover:bg-emerald-950/60 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -103,12 +108,19 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-6 space-y-4">
+          {notice && (
+            <div className="flex items-center gap-2 p-2 bg-amber-950/40 border border-amber-800 rounded text-xs text-amber-300">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+              <span>{notice}</span>
+            </div>
+          )}
+
           {/* Quick source actions */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handlePasteClipboard}
               type="button"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#06140b] hover:bg-[#0c2415] text-xs text-emerald-300 border border-emerald-800 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#06140b] hover:bg-[#0c2415] text-xs text-emerald-300 border border-emerald-800 transition-colors cursor-pointer"
             >
               <Clipboard className="w-3.5 h-3.5 text-emerald-400" />
               <span>[PASTE_CLIPBOARD]</span>
@@ -117,7 +129,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
             <button
               onClick={handleImportBatch}
               type="button"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#06140b] hover:bg-[#0c2415] text-xs text-emerald-300 border border-emerald-800 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#06140b] hover:bg-[#0c2415] text-xs text-emerald-300 border border-emerald-800 transition-colors cursor-pointer"
             >
               <FileText className="w-3.5 h-3.5 text-emerald-400" />
               <span>[LOAD_TXT_BATCH]</span>
@@ -126,7 +138,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
             <button
               onClick={handleLoadSamples}
               type="button"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-950/80 hover:bg-emerald-900/60 text-xs text-emerald-300 border border-emerald-700/80 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-950/80 hover:bg-emerald-900/60 text-xs text-emerald-300 border border-emerald-700/80 transition-colors cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
               <span>[BENCHMARK_SAMPLES]</span>
@@ -141,9 +153,12 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
             <textarea
               rows={6}
               value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
+              onChange={(e) => {
+                setUrlInput(e.target.value);
+                setNotice(null);
+              }}
               placeholder="https://speedtest.tele2.net/10MB.zip&#10;https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-              className="w-full bg-[#020503] border border-emerald-950 rounded p-3 text-xs font-mono text-emerald-200 placeholder-emerald-900 focus:outline-none focus:border-emerald-500 resize-none shadow-inner"
+              className="w-full bg-[#020503] border border-emerald-950 rounded-lg p-3 text-xs font-mono text-emerald-200 placeholder-emerald-900 focus:outline-none focus:border-emerald-500 resize-none shadow-inner"
             />
           </div>
 
@@ -193,7 +208,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
           <button
             onClick={onClose}
             type="button"
-            className="px-4 py-1.5 text-xs text-emerald-600 hover:text-emerald-300 transition-colors"
+            className="px-4 py-1.5 text-xs text-emerald-600 hover:text-emerald-300 transition-colors cursor-pointer"
           >
             ABORT
           </button>
@@ -201,7 +216,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
           <button
             onClick={() => handleSubmit(false)}
             type="button"
-            className="px-4 py-1.5 text-xs text-emerald-300 bg-[#06140b] hover:bg-[#0c2415] border border-emerald-800 rounded transition-colors"
+            className="px-4 py-1.5 text-xs text-emerald-300 bg-[#06140b] hover:bg-[#0c2415] border border-emerald-800 rounded transition-colors cursor-pointer"
           >
             STAGE_TO_LINKGRABBER
           </button>
@@ -209,7 +224,7 @@ export const AddLinksModal: React.FC<AddLinksModalProps> = ({
           <button
             onClick={() => handleSubmit(true)}
             type="button"
-            className="px-4 py-1.5 text-xs font-bold text-black bg-emerald-400 hover:bg-emerald-300 rounded transition-all shadow-[0_0_10px_rgba(16,185,129,0.35)]"
+            className="px-4 py-1.5 text-xs font-bold text-black bg-emerald-400 hover:bg-emerald-300 rounded transition-all shadow-[0_0_10px_rgba(16,185,129,0.35)] cursor-pointer"
           >
             EXECUTE_SOCKETS_NOW
           </button>

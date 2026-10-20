@@ -41,7 +41,7 @@ class UniversalBridge {
   private _initSse() {
     try {
       this.sseSource = new EventSource('/api/downloads/events');
-      
+
       const eventTypes = [
         'download:progress',
         'download:status',
@@ -50,7 +50,9 @@ class UniversalBridge {
         'archive:progress',
         'torrent:progress',
         'torrent:completed',
-        'torrent:error'
+        'torrent:error',
+        'torrent:status',
+        'security:alert'
       ];
 
       eventTypes.forEach((evt) => {
@@ -83,7 +85,7 @@ class UniversalBridge {
       body: JSON.stringify({ urls })
     });
     const data = await res.json();
-    return data.items || [];
+    return data.items || data.links || [];
   }
 
   async readClipboard(): Promise<string[]> {
@@ -93,7 +95,7 @@ class UniversalBridge {
     try {
       if (navigator.clipboard && navigator.clipboard.readText) {
         const text = await navigator.clipboard.readText();
-        const matches = text.match(/(https?:\/\/[^\s]+)/g) || [];
+        const matches = text.match(/(https?:\/\/[^\s]+|magnet:\?[^\s]+)/g) || [];
         return Array.from(new Set(matches));
       }
     } catch (_) {}
@@ -104,7 +106,6 @@ class UniversalBridge {
     if (this.isElectron && window.electronAPI) {
       return window.electronAPI.openFileDialog();
     }
-    // Web fallback: Prompt file input
     return new Promise((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
@@ -116,7 +117,7 @@ class UniversalBridge {
         const lines = text
           .split(/\r?\n/)
           .map((l) => l.trim())
-          .filter((l) => l.startsWith('http://') || l.startsWith('https://'));
+          .filter((l) => l.startsWith('http://') || l.startsWith('https://') || l.startsWith('magnet:?'));
         resolve(lines);
       };
       input.click();
@@ -127,12 +128,10 @@ class UniversalBridge {
     if (this.isElectron && window.electronAPI) {
       return window.electronAPI.selectDirectory();
     }
-    // In web environment, mock folder selection path
-    const folder = prompt('Enter destination directory path:', '~/Downloads/DownloaderPro');
-    return folder;
+    return '~/Downloads/DownloaderPro';
   }
 
-  async startDownload(item: Partial<DownloadItem>): Promise<{ success: boolean; id: string }> {
+  async startDownload(item: Partial<DownloadItem>): Promise<{ success: boolean; id: string; error?: string }> {
     if (this.isElectron && window.electronAPI) {
       return window.electronAPI.startDownload(item);
     }
@@ -142,6 +141,16 @@ class UniversalBridge {
       body: JSON.stringify(item)
     });
     return res.json();
+  }
+
+  async getDownloads(): Promise<DownloadItem[]> {
+    try {
+      const res = await fetch('/api/downloads/list');
+      const data = await res.json();
+      return data.downloads || [];
+    } catch (_) {
+      return [];
+    }
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; id: string }> {
@@ -180,26 +189,35 @@ class UniversalBridge {
     return res.json();
   }
 
-  async verifyChecksum(filePath: string, algorithm: string, expectedHash: string): Promise<any> {
+  async setDownloadSpeedLimit(id: string, limitKbps: number): Promise<any> {
+    const res = await fetch(`/api/downloads/${id}/speed-limit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limitKbps })
+    });
+    return res.json();
+  }
+
+  async verifyChecksum(filePath: string, algorithm = 'sha256', expectedHash = '', id?: string): Promise<any> {
     if (this.isElectron && window.electronAPI) {
       return window.electronAPI.verifyChecksum(filePath, algorithm, expectedHash);
     }
     const res = await fetch('/api/checksum/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath, algorithm, expectedHash })
+      body: JSON.stringify({ filePath, algorithm, expectedHash, id })
     });
     return res.json();
   }
 
-  async extractArchive(filePath: string, destDir?: string): Promise<any> {
+  async extractArchive(filePath: string, destDir?: string, id?: string): Promise<any> {
     if (this.isElectron && window.electronAPI) {
       return window.electronAPI.extractArchive(filePath, destDir);
     }
     const res = await fetch('/api/archive/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath, destDir })
+      body: JSON.stringify({ filePath, destDir, id })
     });
     return res.json();
   }
@@ -208,7 +226,6 @@ class UniversalBridge {
     if (this.isElectron && window.electronAPI) {
       return window.electronAPI.openFolder(folderPath);
     }
-    alert(`Destination folder: ${folderPath}`);
     return true;
   }
 
@@ -228,6 +245,128 @@ class UniversalBridge {
     } catch (_) {
       return [];
     }
+  }
+
+  // --- Security Methods ---
+  async runSecurityAudit(): Promise<any> {
+    const res = await fetch('/api/security/audit', { method: 'POST' });
+    return res.json();
+  }
+
+  async getSecurityPolicy(): Promise<any> {
+    const res = await fetch('/api/security/policy');
+    return res.json();
+  }
+
+  async updateSecurityPolicy(policy: any): Promise<any> {
+    const res = await fetch('/api/security/policy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(policy)
+    });
+    return res.json();
+  }
+
+  async authorizeDownload(id: string): Promise<any> {
+    const res = await fetch('/api/security/authorize-download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    });
+    return res.json();
+  }
+
+  async authorizeTorrent(infoHash: string): Promise<any> {
+    const res = await fetch('/api/security/authorize-torrent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ infoHash })
+    });
+    return res.json();
+  }
+
+  // --- Multi-Layered Security Pipeline Methods ---
+  async getSecurityLogs(limit = 120): Promise<any[]> {
+    try {
+      const res = await fetch(`/api/security/logs?limit=${limit}`);
+      const data = await res.json();
+      return data.logs || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async clearSecurityLogs(): Promise<any> {
+    const res = await fetch('/api/security/logs/clear', { method: 'POST' });
+    return res.json();
+  }
+
+  async getQuarantineVault(): Promise<any[]> {
+    try {
+      const res = await fetch('/api/security/quarantine/vault');
+      const data = await res.json();
+      return data.vault || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async restoreFromQuarantine(quarantineId: string, destinationDir?: string): Promise<any> {
+    const res = await fetch('/api/security/quarantine/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quarantineId, destinationDir })
+    });
+    return res.json();
+  }
+
+  async deleteQuarantinedFile(quarantineId: string): Promise<any> {
+    const res = await fetch('/api/security/quarantine/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quarantineId })
+    });
+    return res.json();
+  }
+
+  async cleanupQuarantineVault(olderThanDays = 30): Promise<any> {
+    const res = await fetch('/api/security/quarantine/cleanup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ olderThanDays })
+    });
+    return res.json();
+  }
+
+  async scanFileOnDemand(id?: string, filePath?: string): Promise<any> {
+    const res = await fetch('/api/security/scan-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, filePath })
+    });
+    return res.json();
+  }
+
+  async queryThreatIntelligence(hash: string, filename?: string): Promise<any> {
+    const res = await fetch('/api/security/threat-intel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hash, filename })
+    });
+    return res.json();
+  }
+
+  async openFile(id?: string, filePath?: string): Promise<any> {
+    const res = await fetch('/api/file/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, filePath })
+    });
+    return res.json();
+  }
+
+  onSecurityAlert(callback: (data: any) => void): () => void {
+    return this._subscribe('security:alert', callback);
   }
 
   // --- Torrent Methods ---
@@ -275,6 +414,10 @@ class UniversalBridge {
 
   onTorrentCompleted(callback: (data: any) => void): () => void {
     return this._subscribe('torrent:completed', callback);
+  }
+
+  onTorrentStatus(callback: (data: any) => void): () => void {
+    return this._subscribe('torrent:status', callback);
   }
 
   // Event subscriptions

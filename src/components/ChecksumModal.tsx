@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShieldCheck, Copy, Check, AlertTriangle, Terminal } from 'lucide-react';
+import { X, ShieldCheck, Copy, Check, AlertTriangle, AlertCircle } from 'lucide-react';
 import { DownloadItem } from '../types';
 
 interface ChecksumModalProps {
@@ -20,6 +20,7 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [verifyResult, setVerifyResult] = useState<{ match: boolean | null; calculated?: string } | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
   if (!isOpen || !item) return null;
 
@@ -31,16 +32,17 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
 
   const handleRunVerify = async () => {
     if (!expectedHash.trim()) {
-      alert('Please enter an expected checksum hash to compare.');
+      setErrorNotice('Please enter an expected checksum hash to compare.');
       return;
     }
+    setErrorNotice(null);
     setIsVerifying(true);
     try {
       const fullPath = `${item.saveDir}/${item.filename}`;
       const res = await onVerify(fullPath, algorithm, expectedHash.trim());
       setVerifyResult(res);
     } catch (err: any) {
-      alert(err.message || 'Verification failed');
+      setErrorNotice(err.message || 'Verification failed');
     } finally {
       setIsVerifying(false);
     }
@@ -51,7 +53,7 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm font-mono">
-      <div className="bg-[#040c07] border border-emerald-800/90 rounded max-w-lg w-full overflow-hidden shadow-[0_0_25px_rgba(16,185,129,0.2)]">
+      <div className="bg-[#040c07] border border-emerald-800/90 rounded-xl max-w-lg w-full overflow-hidden shadow-[0_0_25px_rgba(16,185,129,0.2)]">
         {/* Terminal Header */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-emerald-950 bg-[#020503]">
           <div className="flex items-center gap-2">
@@ -60,7 +62,7 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded text-emerald-600 hover:text-emerald-300 hover:bg-emerald-950/60 transition-colors"
+            className="p-1 rounded text-emerald-600 hover:text-emerald-300 hover:bg-emerald-950/60 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -75,6 +77,13 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
             </span>
           </div>
 
+          {errorNotice && (
+            <div className="flex items-center gap-2 p-2 bg-rose-950/40 border border-rose-800 rounded text-xs text-rose-300">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{errorNotice}</span>
+            </div>
+          )}
+
           {/* SHA-256 Card */}
           <div className="bg-[#020503] border border-emerald-950 rounded p-3">
             <div className="flex items-center justify-between mb-1">
@@ -82,7 +91,7 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
               {item.checksums?.sha256 && (
                 <button
                   onClick={() => handleCopy(item.checksums!.sha256, 'sha256')}
-                  className="text-emerald-600 hover:text-emerald-300 flex items-center gap-1 text-[10px]"
+                  className="text-emerald-600 hover:text-emerald-300 flex items-center gap-1 text-[10px] cursor-pointer"
                 >
                   {copiedField === 'sha256' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                   <span>{copiedField === 'sha256' ? 'COPIED' : 'COPY'}</span>
@@ -101,7 +110,7 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
               {item.checksums?.md5 && (
                 <button
                   onClick={() => handleCopy(item.checksums!.md5, 'md5')}
-                  className="text-emerald-600 hover:text-emerald-300 flex items-center gap-1 text-[10px]"
+                  className="text-emerald-600 hover:text-emerald-300 flex items-center gap-1 text-[10px] cursor-pointer"
                 >
                   {copiedField === 'md5' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                   <span>{copiedField === 'md5' ? 'COPIED' : 'COPY'}</span>
@@ -131,7 +140,10 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
                 type="text"
                 placeholder="0x9a8b7c..."
                 value={expectedHash}
-                onChange={(e) => setExpectedHash(e.target.value)}
+                onChange={(e) => {
+                  setExpectedHash(e.target.value);
+                  setErrorNotice(null);
+                }}
                 className="flex-1 bg-[#020503] border border-emerald-950 rounded px-3 py-1.5 text-xs text-emerald-200 placeholder-emerald-900 focus:outline-none focus:border-emerald-500"
               />
             </div>
@@ -171,7 +183,7 @@ export const ChecksumModal: React.FC<ChecksumModalProps> = ({
         <div className="flex items-center justify-end px-6 py-2.5 bg-[#020503] border-t border-emerald-950">
           <button
             onClick={onClose}
-            className="px-4 py-1 text-xs text-emerald-500 hover:text-emerald-200 transition-colors"
+            className="px-4 py-1 text-xs text-emerald-500 hover:text-emerald-200 transition-colors cursor-pointer"
           >
             DISMISS
           </button>

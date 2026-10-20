@@ -1,54 +1,94 @@
 import React, { useState, useEffect } from 'react';
 import { bridge } from './services/electronBridge';
-import { DownloadItem, SpeedSample } from './types';
-import { formatBytes, formatSpeed, formatEta, getFileExtension } from './utils/formatters';
-import {
-  Download,
-  Plus,
-  Play,
-  Pause,
-  Trash2,
-  FolderOpen,
-  Clipboard,
-  Magnet,
-  Activity,
-  ShieldCheck,
-  Terminal
-} from 'lucide-react';
+import { DownloadItem, StagedLink, SpeedSample, AppSettings, TorrentItem } from './types';
+import { Header, TabType } from './components/Header';
+import { DownloadsView } from './components/DownloadsView';
+import { TorrentsView } from './components/TorrentsView';
+import { LinkGrabberView } from './components/LinkGrabberView';
+import { SecurityAuditView } from './components/SecurityAuditView';
+import { SettingsModal } from './components/SettingsModal';
+import { ElectronSourceViewer } from './components/ElectronSourceViewer';
+import { AddLinksModal } from './components/AddLinksModal';
+import { ChecksumModal } from './components/ChecksumModal';
+import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
+
+interface ToastNotification {
+  id: string;
+  type: 'success' | 'warning' | 'info' | 'error';
+  message: string;
+}
 
 export default function App() {
-  const [urlInput, setUrlInput] = useState('');
-  const [segments, setSegments] = useState(4);
-  const [speedLimitKbps, setSpeedLimitKbps] = useState(0);
+  const [activeTab, setActiveTab] = useState<TabType>('downloads');
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
-  const [torrents, setTorrents] = useState<any[]>([]);
-  const [magnetInput, setMagnetInput] = useState('');
+  const [torrents, setTorrents] = useState<TorrentItem[]>([]);
+  const [stagedLinks, setStagedLinks] = useState<StagedLink[]>([]);
   const [speedSamples, setSpeedSamples] = useState<SpeedSample[]>([]);
   const [globalSpeed, setGlobalSpeed] = useState(0);
-  const [saveDir, setSaveDir] = useState('~/Downloads/DownloaderPro');
-  const [isProbing, setIsProbing] = useState(false);
-  const [isAddingTorrent, setIsAddingTorrent] = useState(false);
-  const [activeTab, setActiveTab] = useState<'downloads' | 'torrents' | 'source'>('downloads');
+
+  // Settings
+  const [settings, setSettings] = useState<AppSettings>({
+    defaultSegments: 4,
+    globalSpeedLimitKbps: 0,
+    defaultSaveDir: '~/Downloads/DownloaderPro',
+    autoExtractArchives: true,
+    maxConcurrentDownloads: 3,
+    autoStartAfterGrab: false,
+    disableLanPeerDiscovery: true,
+    quarantineExecutables: true
+  });
+
+  // Modals state
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [checksumModalItem, setChecksumModalItem] = useState<DownloadItem | null>(null);
+
+  // Non-blocking toast notification banner
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+
+  const addToast = (message: string, type: 'success' | 'warning' | 'info' | 'error' = 'info') => {
+    const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    setToasts((prev) => [...prev.slice(-4), { id, type, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4500);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   const isDesktop = bridge.isNativeDesktop();
 
+  // Initial load
   useEffect(() => {
     async function init() {
       try {
-        const info = await bridge.getSystemInfo();
-        if (info && info.defaultDownloadDir) {
-          setSaveDir(info.defaultDownloadDir);
+        const sysInfo = await bridge.getSystemInfo();
+        if (sysInfo && sysInfo.defaultDownloadDir) {
+          setSettings((prev) => ({
+            ...prev,
+            defaultSaveDir: sysInfo.defaultDownloadDir,
+            globalSpeedLimitKbps: sysInfo.globalSpeedLimitKbps || prev.globalSpeedLimitKbps
+          }));
         }
-        const activeTorrents = await bridge.getTorrents();
-        setTorrents(activeTorrents);
+
+        const initialDownloads = await bridge.getDownloads();
+        if (initialDownloads && initialDownloads.length > 0) {
+          setDownloads(initialDownloads);
+        }
+
+        const initialTorrents = await bridge.getTorrents();
+        if (initialTorrents && initialTorrents.length > 0) {
+          setTorrents(initialTorrents);
+        }
       } catch (err) {
-        console.error(err);
+        console.warn('Init error:', err);
       }
     }
     init();
   }, []);
 
-  // Listen to real-time events for downloads & torrents
+  // Real-time Event Listeners
   useEffect(() => {
     const unsubProgress = bridge.onDownloadProgress((data) => {
       setDownloads((prev) =>
@@ -58,7 +98,7 @@ export default function App() {
 
     const unsubStatus = bridge.onDownloadStatus((data) => {
       setDownloads((prev) =>
-        prev.map((item) => (item.id === data.id ? { ...item, status: data.status } : item))
+        prev.map((item) => (item.id === data.id ? { ...item, ...data } : item))
       );
     });
 
@@ -66,15 +106,22 @@ export default function App() {
       setDownloads((prev) =>
         prev.map((item) => (item.id === data.id ? {
           ...item,
+          ...data,
           status: 'completed',
           percent: 100,
           downloadedBytes: data.totalBytes || item.size,
           speedBytesPerSec: 0,
-          etaSeconds: 0,
-          checksums: data.checksums,
-          verified: data.verified
+          etaSeconds: 0
         } : item))
       );
+      addToast(`Download Complete: ${data.filename || 'File'}`, 'success');
+    });
+
+    const unsubError = bridge.onDownloadError((data) => {
+      setDownloads((prev) =>
+        prev.map((item) => (item.id === data.id ? { ...item, status: 'error', error: data.error } : item))
+      );
+      addToast(`Download Failed: ${data.error}`, 'error');
     });
 
     const unsubTorrentProgress = bridge.onTorrentProgress((data) => {
@@ -94,521 +141,514 @@ export default function App() {
       setTorrents((prev) =>
         prev.map((t) => (t.infoHash === data.infoHash ? { ...t, ...data, status: 'completed', progress: 100 } : t))
       );
+      addToast(`Torrent Stream Complete: ${data.name || 'Torrent'}`, 'success');
+    });
+
+    const unsubTorrentStatus = bridge.onTorrentStatus((data) => {
+      setTorrents((prev) =>
+        prev.map((t) => (t.infoHash === data.infoHash ? { ...t, ...data } : t))
+      );
+    });
+
+    const unsubSecurityAlert = bridge.onSecurityAlert((data) => {
+      addToast(`Security Alert: ${data.warning || 'Threat signature detected'}`, 'warning');
     });
 
     return () => {
       unsubProgress();
       unsubStatus();
       unsubCompleted();
+      unsubError();
       unsubTorrentProgress();
       unsubTorrentCompleted();
+      unsubTorrentStatus();
+      unsubSecurityAlert();
     };
   }, []);
 
-  // Speed graph sample generator
+  // Speed telemetry sampler
   useEffect(() => {
     const interval = setInterval(() => {
       setDownloads((current) => {
         const active = current.filter((d) => d.status === 'downloading' || d.status === 'connecting');
-        const speedSum = active.reduce((acc, d) => acc + (d.speedBytesPerSec || 0), 0);
-        setGlobalSpeed(speedSum);
-        setSpeedSamples((prev) => [...prev.slice(-39), { timestamp: Date.now(), speed: speedSum }]);
+        const dlSpeedSum = active.reduce((acc, d) => acc + (d.speedBytesPerSec || 0), 0);
+        
+        let torrentSpeedSum = 0;
+        setTorrents((torr) => {
+          torrentSpeedSum = torr.reduce((acc, t) => acc + (t.status === 'downloading' ? (t.downloadSpeed || 0) : 0), 0);
+          return torr;
+        });
+
+        const totalSpeed = dlSpeedSum + torrentSpeedSum;
+        setGlobalSpeed(totalSpeed);
+        setSpeedSamples((prev) => [...prev.slice(-39), { timestamp: Date.now(), speed: totalSpeed }]);
         return current;
       });
     }, 500);
+
     return () => clearInterval(interval);
   }, []);
 
-  const handleStartDownload = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const cleanUrl = urlInput.trim();
-    if (!cleanUrl || (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://'))) {
-      alert('Please enter a valid HTTP or HTTPS URL.');
-      return;
+  // --- Handlers ---
+
+  const handleStartAll = () => {
+    downloads.forEach((item) => {
+      if (item.status === 'paused' || item.status === 'idle') {
+        bridge.resumeDownload(item.id);
+      }
+    });
+    torrents.forEach((t) => {
+      if (t.status === 'paused') {
+        bridge.resumeTorrent(t.infoHash);
+      }
+    });
+    addToast('Starting all downloads and torrent streams', 'info');
+  };
+
+  const handlePauseAll = () => {
+    downloads.forEach((item) => {
+      if (item.status === 'downloading' || item.status === 'connecting') {
+        bridge.pauseDownload(item.id);
+      }
+    });
+    torrents.forEach((t) => {
+      if (t.status === 'downloading') {
+        bridge.pauseTorrent(t.infoHash);
+      }
+    });
+    addToast('Paused all active downloads and torrent streams', 'info');
+  };
+
+  const handleSetSpeedLimit = async (limitKbps: number) => {
+    setSettings((prev) => ({ ...prev, globalSpeedLimitKbps: limitKbps }));
+    await bridge.setSpeedLimit(limitKbps);
+    if (limitKbps === 0) {
+      addToast('Bandwidth speed limit removed: UNLIMITED', 'success');
+    } else {
+      addToast(`Bandwidth speed clamp set to ${limitKbps >= 1024 ? limitKbps / 1024 + ' MB/s' : limitKbps + ' KB/s'}`, 'info');
     }
+  };
 
-    setIsProbing(true);
+  const handleSetItemSpeedLimit = async (id: string, limitKbps: number) => {
+    await bridge.setDownloadSpeedLimit(id, limitKbps);
+    setDownloads((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, speedLimitKbps: limitKbps } : d))
+    );
+    addToast(`Per-download speed clamp set to ${limitKbps === 0 ? 'Unlimited' : limitKbps + ' KB/s'}`, 'info');
+  };
+
+  const handlePlayDownload = async (id: string) => {
+    await bridge.resumeDownload(id);
+    setDownloads((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, status: 'downloading' } : d))
+    );
+  };
+
+  const handlePauseDownload = async (id: string) => {
+    await bridge.pauseDownload(id);
+    setDownloads((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, status: 'paused', speedBytesPerSec: 0 } : d))
+    );
+  };
+
+  const handleRetryDownload = async (id: string) => {
+    const item = downloads.find((d) => d.id === id);
+    if (!item) return;
+    await bridge.resumeDownload(id);
+    setDownloads((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, status: 'connecting', error: undefined } : d))
+    );
+  };
+
+  const handleDeleteDownload = async (id: string) => {
+    await bridge.cancelDownload(id);
+    setDownloads((prev) => prev.filter((d) => d.id !== id));
+    addToast('Download removed and partial files pruned', 'info');
+  };
+
+  const handleAuthorizeDownload = async (id: string) => {
+    await bridge.authorizeDownload(id);
+    setDownloads((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, quarantined: false, authorized: true } : d))
+    );
+    addToast('Security Clearance: Executable payload unlocked for execution', 'success');
+  };
+
+  const handleAuthorizeTorrent = async (infoHash: string) => {
+    await bridge.authorizeTorrent(infoHash);
+    setTorrents((prev) =>
+      prev.map((t) => (t.infoHash === infoHash ? { ...t, quarantined: false } : t))
+    );
+    addToast('Security Clearance: Torrent payload authorized', 'success');
+  };
+
+  // Add Torrent
+  const handleAddTorrent = async (magnetURI: string) => {
+    const res = await bridge.addTorrent(magnetURI);
+    if (res.success && res.torrent) {
+      setTorrents((prev) => [res.torrent, ...prev]);
+      addToast(`Torrent Ingested: ${res.torrent.name}`, 'success');
+    } else {
+      addToast(`Torrent Error: ${res.error || 'Failed to ingest magnet link'}`, 'error');
+    }
+  };
+
+  const handlePauseTorrent = async (infoHash: string) => {
+    await bridge.pauseTorrent(infoHash);
+    setTorrents((prev) =>
+      prev.map((t) => (t.infoHash === infoHash ? { ...t, status: 'paused' } : t))
+    );
+  };
+
+  const handleResumeTorrent = async (infoHash: string) => {
+    await bridge.resumeTorrent(infoHash);
+    setTorrents((prev) =>
+      prev.map((t) => (t.infoHash === infoHash ? { ...t, status: 'downloading' } : t))
+    );
+  };
+
+  const handleRemoveTorrent = async (infoHash: string, deleteFiles = false) => {
+    await bridge.removeTorrent(infoHash, deleteFiles);
+    setTorrents((prev) => prev.filter((t) => t.infoHash !== infoHash));
+    addToast('Torrent session pruned', 'info');
+  };
+
+  // Link Grabber Submissions
+  const handleAddLinksSubmit = async (data: {
+    urls: string[];
+    packageGroup: string;
+    segments: number;
+    autoExtract: boolean;
+    startNow: boolean;
+  }) => {
+    addToast(`Probing ${data.urls.length} link(s) for Range support and metadata...`, 'info');
+
     try {
-      const probedList = await bridge.parseLinks([cleanUrl]);
-      const probed = probedList[0] || {
-        url: cleanUrl,
-        filename: cleanUrl.split('/').pop()?.split('?')[0] || 'download.bin',
-        size: 0,
-        host: new URL(cleanUrl).hostname,
-        acceptRanges: true
-      };
+      const probedItems = await bridge.parseLinks(data.urls);
 
-      const newItem: DownloadItem = {
-        id: `dl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        url: cleanUrl,
-        filename: probed.filename || 'download.bin',
-        saveDir: saveDir,
+      const newStaged: StagedLink[] = probedItems.map((probed) => ({
+        id: probed.id || `staged_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        rawUrl: probed.url,
+        url: probed.url,
+        filename: probed.filename || probed.name || 'download.bin',
         size: probed.size || 0,
-        downloadedBytes: 0,
-        percent: 0,
-        status: 'connecting',
-        segments: segments,
-        chunks: [],
-        speedBytesPerSec: 0,
-        etaSeconds: 0,
         host: probed.host || 'unknown',
+        contentType: probed.contentType,
         acceptRanges: probed.acceptRanges !== false,
-        addedAt: Date.now()
-      };
+        status: probed.status === 'blocked' ? 'blocked' : probed.status === 'offline' ? 'offline' : 'online',
+        selected: probed.status !== 'blocked',
+        packageGroup: data.packageGroup,
+        segments: data.segments,
+        autoExtract: data.autoExtract,
+        riskLevel: probed.riskLevel,
+        isExecutable: probed.isExecutable,
+        quarantined: probed.quarantined,
+        securityWarning: probed.securityWarning
+      }));
 
-      setDownloads((prev) => [newItem, ...prev]);
-      setUrlInput('');
+      // Check for blocked SSRF resources
+      const blocked = newStaged.filter((s) => s.status === 'blocked');
+      if (blocked.length > 0) {
+        addToast(`Security Warning: ${blocked.length} link(s) blocked by SSRF & Private IP Firewall`, 'warning');
+      }
 
-      await bridge.setSpeedLimit(speedLimitKbps);
-      await bridge.startDownload({
-        id: newItem.id,
-        url: newItem.url,
-        filename: newItem.filename,
-        saveDir: newItem.saveDir,
-        size: newItem.size,
-        segments: newItem.segments,
-        speedLimitKbps: speedLimitKbps,
-        autoExtract: true
+      if (data.startNow) {
+        // Direct start without staging
+        const validLinks = newStaged.filter((s) => s.status !== 'blocked');
+        for (const item of validLinks) {
+          await handleStartDownloadFromStaged(item);
+        }
+        setActiveTab('downloads');
+      } else {
+        setStagedLinks((prev) => [...newStaged, ...prev]);
+        setActiveTab('linkgrabber');
+        addToast(`Staged ${newStaged.length} links in LinkGrabber`, 'success');
+      }
+    } catch (err: any) {
+      addToast(`Link Probe Failed: ${err.message}`, 'error');
+    }
+  };
+
+  const handleStartDownloadFromStaged = async (item: StagedLink) => {
+    const newItem: DownloadItem = {
+      id: `dl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      url: item.url,
+      filename: item.filename,
+      saveDir: settings.defaultSaveDir,
+      size: item.size,
+      downloadedBytes: 0,
+      percent: 0,
+      status: 'connecting',
+      segments: item.segments,
+      chunks: [],
+      speedBytesPerSec: 0,
+      etaSeconds: 0,
+      host: item.host,
+      acceptRanges: item.acceptRanges,
+      autoExtract: item.autoExtract,
+      expectedChecksum: item.expectedChecksum
+        ? { algorithm: item.checksumType || 'sha256', hash: item.expectedChecksum }
+        : undefined,
+      addedAt: Date.now(),
+      riskLevel: item.riskLevel,
+      isExecutable: item.isExecutable,
+      quarantined: item.quarantined
+    };
+
+    setDownloads((prev) => [newItem, ...prev]);
+
+    const res = await bridge.startDownload({
+      id: newItem.id,
+      url: newItem.url,
+      filename: newItem.filename,
+      saveDir: newItem.saveDir,
+      size: newItem.size,
+      segments: newItem.segments,
+      speedLimitKbps: settings.globalSpeedLimitKbps,
+      autoExtract: newItem.autoExtract,
+      expectedChecksum: newItem.expectedChecksum
+    });
+
+    if (res && res.error) {
+      addToast(`Security block: ${res.error}`, 'error');
+    }
+  };
+
+  const handleLoadSamples = async () => {
+    const samples = await bridge.getTestFiles();
+    if (samples && samples.length > 0) {
+      await handleAddLinksSubmit({
+        urls: [samples[0].url],
+        packageGroup: 'BENCHMARK_PROBE',
+        segments: 4,
+        autoExtract: true,
+        startNow: true
       });
-    } catch (err: any) {
-      alert(`Failed to start download: ${err.message}`);
-    } finally {
-      setIsProbing(false);
     }
   };
 
-  const handleAddTorrent = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const uri = magnetInput.trim();
-    if (!uri || (!uri.startsWith('magnet:?') && !uri.endsWith('.torrent'))) {
-      alert('Please enter a valid magnet link or torrent URI.');
-      return;
-    }
+  const totalDownloaded = downloads.reduce((acc, d) => acc + (d.downloadedBytes || 0), 0);
+  const totalSize = downloads.reduce((acc, d) => acc + (d.size || 0), 0);
+  const activeConnections = downloads
+    .filter((d) => d.status === 'downloading')
+    .reduce((acc, d) => acc + (d.segments || 4), 0);
 
-    setIsAddingTorrent(true);
-    try {
-      const res = await bridge.addTorrent(uri);
-      if (res.success && res.torrent) {
-        setTorrents((prev) => [res.torrent, ...prev]);
-        setMagnetInput('');
-        setActiveTab('torrents');
-      } else {
-        alert(res.error || 'Failed to add torrent');
-      }
-    } catch (err: any) {
-      alert(`Torrent error: ${err.message}`);
-    } finally {
-      setIsAddingTorrent(false);
-    }
-  };
-
-  const handlePasteClipboard = async () => {
-    try {
-      const urls = await bridge.readClipboard();
-      if (urls && urls.length > 0) {
-        setUrlInput(urls[0]);
-      } else {
-        alert('No URL found in clipboard.');
-      }
-    } catch (_) {}
-  };
-
-  const handleLoadSample = async () => {
-    const files = await bridge.getTestFiles();
-    if (files && files.length > 0) {
-      const sample = files[0];
-      setUrlInput(sample.url);
-    }
-  };
-
-  const totalQueueSize = downloads.reduce((acc, d) => acc + (d.size || 0), 0);
-  const totalQueueDownloaded = downloads.reduce((acc, d) => acc + (d.downloadedBytes || 0), 0);
+  const quarantinedCount = downloads.filter((d) => d.quarantined).length + torrents.filter((t) => t.quarantined).length;
 
   return (
     <div className="min-h-screen bg-[#030706] text-emerald-100 flex flex-col font-mono selection:bg-emerald-500/30">
-      {/* Navigation Header */}
-      <header className="bg-[#040906] border-b border-emerald-950 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded border border-emerald-500/40 bg-emerald-950/60 flex items-center justify-center text-emerald-400">
-            <Download className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="text-sm font-bold text-emerald-300">Downloader Pro</span>
-            <span className="text-[10px] text-emerald-600 block">HTTP Range & Secure Torrent Engine</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs">
-          <button
-            onClick={() => setActiveTab('downloads')}
-            className={`px-3 py-1.5 rounded transition-colors ${activeTab === 'downloads' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'text-emerald-600 hover:text-emerald-300'}`}
+      {/* Toast Notifications Overlay */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto p-3 rounded-lg border text-xs shadow-2xl flex items-start justify-between gap-3 backdrop-blur-md transition-all ${
+              toast.type === 'success'
+                ? 'bg-emerald-950/90 border-emerald-600 text-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                : toast.type === 'error'
+                ? 'bg-rose-950/90 border-rose-700 text-rose-200 shadow-[0_0_15px_rgba(244,63,94,0.3)]'
+                : toast.type === 'warning'
+                ? 'bg-amber-950/90 border-amber-600 text-amber-200 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                : 'bg-[#06140b]/90 border-emerald-800 text-emerald-300'
+            }`}
           >
-            Downloads ({downloads.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('torrents')}
-            className={`px-3 py-1.5 rounded transition-colors ${activeTab === 'torrents' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'text-emerald-600 hover:text-emerald-300'}`}
-          >
-            Torrents ({torrents.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('source')}
-            className={`px-3 py-1.5 rounded transition-colors ${activeTab === 'source' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'text-emerald-600 hover:text-emerald-300'}`}
-          >
-            Desktop Setup
-          </button>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="flex-1 p-6 max-w-5xl mx-auto w-full space-y-6">
-        {activeTab === 'source' ? (
-          <div className="bg-[#040b07] border border-emerald-950 rounded p-6 space-y-4">
-            <h2 className="text-sm font-bold text-emerald-300">&gt; Desktop Setup & Electron Integration</h2>
-            <p className="text-xs text-emerald-600">
-              Downloader Pro runs as both a web preview and a native desktop app via Electron. To run locally or package installers:
-            </p>
-            <pre className="p-4 bg-[#020503] border border-emerald-950 rounded text-xs text-emerald-300 overflow-x-auto">
-{`# 1. Install dependencies
-npm install
-npm install -D electron electron-builder concurrently wait-on
-
-# 2. Run in Desktop Electron Mode
-npm run electron:dev
-
-# 3. Build native installers (.exe / .dmg / .AppImage)
-npm run build
-npx electron-builder`}
-            </pre>
+            <div className="flex items-start gap-2 min-w-0">
+              {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />}
+              {toast.type === 'error' && <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />}
+              {toast.type === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />}
+              {toast.type === 'info' && <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />}
+              <span className="break-words">{toast.message}</span>
+            </div>
+            <button
+              onClick={() => removeToast(toast.id)}
+              className="text-emerald-500 hover:text-emerald-200 p-0.5 shrink-0 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
-        ) : activeTab === 'torrents' ? (
-          <>
-            {/* Magnet Link Input Box */}
-            <div className="bg-[#040b07] border border-emerald-900/80 rounded-xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-2">
-                  <Magnet className="w-4 h-4 text-emerald-400" />
-                  <span>// Secure Magnet Link / Torrent Ingestion</span>
-                </h2>
-              </div>
+        ))}
+      </div>
 
-              <form onSubmit={handleAddTorrent} className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={magnetInput}
-                    onChange={(e) => setMagnetInput(e.target.value)}
-                    placeholder="magnet:?xt=urn:btih:... or .torrent URL"
-                    className="w-full bg-[#020503] border border-emerald-900 rounded-lg px-4 py-3 text-xs text-emerald-200 placeholder-emerald-800 focus:outline-none focus:border-emerald-500 font-mono"
-                  />
-                </div>
+      {/* Main Header */}
+      <Header
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        downloadsCount={downloads.length}
+        torrentsCount={torrents.length}
+        linkGrabberCount={stagedLinks.length}
+        quarantinedCount={quarantinedCount}
+        globalSpeed={globalSpeed}
+        totalDownloaded={totalDownloaded}
+        totalSize={totalSize}
+        activeConnections={activeConnections}
+        speedLimitKbps={settings.globalSpeedLimitKbps}
+        onSetSpeedLimit={handleSetSpeedLimit}
+        onStartAll={handleStartAll}
+        onPauseAll={handlePauseAll}
+        onOpenAddModal={() => setIsAddModalOpen(true)}
+        isDesktop={isDesktop}
+      />
 
-                <button
-                  type="submit"
-                  disabled={isAddingTorrent || !magnetInput.trim()}
-                  className="px-6 py-3 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-40 text-black font-bold text-xs rounded-lg transition-all shadow-[0_0_12px_rgba(16,185,129,0.35)] cursor-pointer whitespace-nowrap flex items-center justify-center gap-2"
-                >
-                  <Magnet className="w-4 h-4 stroke-[2.5]" />
-                  <span>{isAddingTorrent ? 'Parsing DHT...' : 'Add Torrent'}</span>
-                </button>
-              </form>
-            </div>
+      {/* View Switcher */}
+      <main className="flex-1 w-full">
+        {activeTab === 'downloads' && (
+          <DownloadsView
+            downloads={downloads}
+            speedSamples={speedSamples}
+            globalSpeed={globalSpeed}
+            onPlay={handlePlayDownload}
+            onPause={handlePauseDownload}
+            onRetry={handleRetryDownload}
+            onDelete={handleDeleteDownload}
+            onOpenFolder={(dir) => {
+              bridge.openFolder(dir);
+              addToast(`Sandbox Destination Directory: ${dir}`, 'info');
+            }}
+            onOpenChecksum={(item) => setChecksumModalItem(item)}
+            onOpenAddModal={() => setIsAddModalOpen(true)}
+            onLoadSamples={handleLoadSamples}
+            onAuthorizeDownload={handleAuthorizeDownload}
+            onSetItemSpeedLimit={handleSetItemSpeedLimit}
+          />
+        )}
 
-            {/* Torrents List */}
-            <div className="space-y-4">
-              {torrents.length === 0 ? (
-                <div className="border border-dashed border-emerald-900/60 rounded-xl p-12 text-center bg-[#030805]">
-                  <div className="w-12 h-12 rounded border border-emerald-800 bg-[#06120a] flex items-center justify-center mx-auto mb-3 text-emerald-400">
-                    <Magnet className="w-5 h-5" />
-                  </div>
-                  <h3 className="text-sm font-bold text-emerald-300 mb-1">No active torrent sessions</h3>
-                  <p className="text-xs text-emerald-600 max-w-sm mx-auto">
-                    Paste a magnet link above to initialize WebTorrent DHT peer discovery and secure streaming download.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {torrents.map((torrent) => (
-                    <div
-                      key={torrent.infoHash}
-                      className="bg-[#040b07] border border-emerald-950 rounded-lg p-4 space-y-3 shadow-md font-mono"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-9 h-9 rounded bg-emerald-950 border border-emerald-800 flex items-center justify-center font-mono text-xs font-bold text-emerald-300 shrink-0">
-                            TOR
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="text-xs font-bold text-emerald-200 truncate" title={torrent.name}>
-                              {torrent.name || torrent.infoHash}
-                            </h4>
-                            <div className="flex items-center gap-2 text-[11px] text-emerald-600 mt-0.5">
-                              <span>{formatBytes(torrent.downloaded || 0)} of {formatBytes(torrent.size || 0)}</span>
-                              <span>·</span>
-                              <span>{torrent.progress || 0}%</span>
-                              <span>·</span>
-                              <span className="text-emerald-300">↓ {formatSpeed(torrent.downloadSpeed || 0)}</span>
-                              <span>·</span>
-                              <span className="text-emerald-400">↑ {formatSpeed(torrent.uploadSpeed || 0)}</span>
-                              <span>·</span>
-                              <span>Peers: {torrent.peers || 0}</span>
-                            </div>
-                          </div>
-                        </div>
+        {activeTab === 'torrents' && (
+          <div className="p-6 max-w-7xl mx-auto">
+            <TorrentsView
+              torrents={torrents}
+              onAddTorrent={handleAddTorrent}
+              onPauseTorrent={handlePauseTorrent}
+              onResumeTorrent={handleResumeTorrent}
+              onRemoveTorrent={handleRemoveTorrent}
+              onAuthorizeTorrent={handleAuthorizeTorrent}
+            />
+          </div>
+        )}
 
-                        <div className="flex items-center gap-2 self-end sm:self-center">
-                          <button
-                            onClick={async () => {
-                              if (torrent.status === 'paused') {
-                                await bridge.resumeTorrent(torrent.infoHash);
-                              } else {
-                                await bridge.pauseTorrent(torrent.infoHash);
-                              }
-                              const list = await bridge.getTorrents();
-                              setTorrents(list);
-                            }}
-                            className="p-2 bg-[#06140b] hover:bg-[#0c2415] text-emerald-400 border border-emerald-800 rounded-md transition-colors"
-                          >
-                            {torrent.status === 'paused' ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
-                          </button>
+        {activeTab === 'linkgrabber' && (
+          <LinkGrabberView
+            stagedLinks={stagedLinks}
+            onAddLinksModal={() => setIsAddModalOpen(true)}
+            onReadClipboard={async () => {
+              const urls = await bridge.readClipboard();
+              if (urls && urls.length > 0) {
+                handleAddLinksSubmit({
+                  urls,
+                  packageGroup: 'CLIPBOARD_STREAM',
+                  segments: 4,
+                  autoExtract: true,
+                  startNow: false
+                });
+              } else {
+                addToast('No URLs detected in clipboard', 'warning');
+              }
+            }}
+            onImportBatchFile={async () => {
+              const urls = await bridge.openFileDialog();
+              if (urls && urls.length > 0) {
+                handleAddLinksSubmit({
+                  urls,
+                  packageGroup: 'FILE_STREAM',
+                  segments: 4,
+                  autoExtract: true,
+                  startNow: false
+                });
+              }
+            }}
+            onStartAll={() => {
+              const valid = stagedLinks.filter((s) => s.status !== 'blocked');
+              valid.forEach((item) => handleStartDownloadFromStaged(item));
+              setStagedLinks([]);
+              setActiveTab('downloads');
+              addToast(`Transferred ${valid.length} items to active download pipeline`, 'success');
+            }}
+            onAddToQueuePaused={() => {
+              const valid = stagedLinks.filter((s) => s.status !== 'blocked');
+              valid.forEach((item) => handleStartDownloadFromStaged(item));
+              setStagedLinks([]);
+              setActiveTab('downloads');
+              addToast(`Added ${valid.length} items to standby queue`, 'info');
+            }}
+            onRemoveSelected={() => {
+              setStagedLinks((prev) => prev.filter((l) => !l.selected));
+            }}
+            onClearAll={() => setStagedLinks([])}
+            onToggleSelect={(id) => {
+              setStagedLinks((prev) =>
+                prev.map((l) => (l.id === id ? { ...l, selected: !l.selected } : l))
+              );
+            }}
+            onSelectAll={(select) => {
+              setStagedLinks((prev) => prev.map((l) => ({ ...l, selected: select })));
+            }}
+            onUpdateLink={(id, updates) => {
+              setStagedLinks((prev) =>
+                prev.map((l) => (l.id === id ? { ...l, ...updates } : l))
+              );
+            }}
+            onRecheckStatus={async () => {
+              addToast('Re-verifying link status...', 'info');
+            }}
+            onSelectDirectory={async () => {
+              const dir = await bridge.selectDirectory();
+              if (dir) setSettings((prev) => ({ ...prev, defaultSaveDir: dir }));
+            }}
+            saveDirectory={settings.defaultSaveDir}
+          />
+        )}
 
-                          <button
-                            onClick={async () => {
-                              await bridge.removeTorrent(torrent.infoHash, false);
-                              const list = await bridge.getTorrents();
-                              setTorrents(list);
-                            }}
-                            className="p-2 bg-[#06140b] hover:bg-rose-950/80 text-rose-400 border border-emerald-950 rounded-md transition-colors"
-                            title="Remove Torrent"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
+        {activeTab === 'security' && (
+          <div className="p-6 max-w-7xl mx-auto">
+            <SecurityAuditView
+              downloads={downloads}
+              torrents={torrents}
+              onAuthorizeDownload={handleAuthorizeDownload}
+              onAuthorizeTorrent={handleAuthorizeTorrent}
+              onDeleteDownload={handleDeleteDownload}
+            />
+          </div>
+        )}
 
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] mb-1">
-                          <span className="text-emerald-500 uppercase">
-                            {torrent.status === 'completed' ? 'Torrent Complete 100%' : `Downloading via DHT (${torrent.peers || 0} peers)...`}
-                          </span>
-                          <span className="text-emerald-300 font-bold">{torrent.progress || 0}%</span>
-                        </div>
-                        <div className="h-2 w-full bg-[#020503] rounded-full overflow-hidden border border-emerald-950">
-                          <div
-                            style={{ width: `${torrent.progress || 0}%` }}
-                            className="h-full bg-gradient-to-r from-emerald-600 to-[#00ff66] transition-all duration-300 rounded-full"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Simple Insert Link Box */}
-            <div className="bg-[#040b07] border border-emerald-900/80 rounded-xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                  // Insert Download Link
-                </h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePasteClipboard}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-emerald-300 bg-[#06140b] hover:bg-[#0c2415] border border-emerald-800 rounded transition-colors"
-                  >
-                    <Clipboard className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Paste Clipboard</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLoadSample}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-emerald-300 bg-[#06140b] hover:bg-[#0c2415] border border-emerald-800 rounded transition-colors"
-                  >
-                    <span>Load 10MB Test File</span>
-                  </button>
-                </div>
-              </div>
+        {activeTab === 'source' && (
+          <div className="p-6 max-w-7xl mx-auto">
+            <ElectronSourceViewer />
+          </div>
+        )}
 
-              <form onSubmit={handleStartDownload} className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1 relative">
-                  <input
-                    type="url"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                    placeholder="https://example.com/file.zip or video.mp4..."
-                    className="w-full bg-[#020503] border border-emerald-900 rounded-lg px-4 py-3 text-xs text-emerald-200 placeholder-emerald-800 focus:outline-none focus:border-emerald-500 font-mono"
-                  />
-                </div>
-
-                <div className="w-full sm:w-36">
-                  <select
-                    value={segments}
-                    onChange={(e) => setSegments(parseInt(e.target.value, 10))}
-                    className="w-full h-full bg-[#020503] border border-emerald-900 rounded-lg px-3 py-2 text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 font-mono"
-                  >
-                    <option value="2">2 Chunks</option>
-                    <option value="4">4 Chunks</option>
-                    <option value="8">8 Chunks</option>
-                    <option value="16">16 Chunks</option>
-                  </select>
-                </div>
-
-                <div className="w-full sm:w-40">
-                  <select
-                    value={speedLimitKbps}
-                    onChange={(e) => setSpeedLimitKbps(parseInt(e.target.value, 10))}
-                    className="w-full h-full bg-[#020503] border border-emerald-900 rounded-lg px-3 py-2 text-xs text-emerald-300 focus:outline-none focus:border-emerald-500 font-mono"
-                  >
-                    <option value="0">Speed: Unlimited</option>
-                    <option value="500">500 KB/s</option>
-                    <option value="1024">1 MB/s</option>
-                    <option value="5120">5 MB/s</option>
-                    <option value="10240">10 MB/s</option>
-                    <option value="25600">25 MB/s</option>
-                  </select>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isProbing || !urlInput.trim()}
-                  className="px-6 py-3 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-40 text-black font-bold text-xs rounded-lg transition-all shadow-[0_0_12px_rgba(16,185,129,0.35)] cursor-pointer whitespace-nowrap flex items-center justify-center gap-2"
-                >
-                  <Download className="w-4 h-4 stroke-[3]" />
-                  <span>{isProbing ? 'Probing...' : 'Download'}</span>
-                </button>
-              </form>
-            </div>
-
-            {/* Active Downloads & Status Bar */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs text-emerald-500 px-1">
-                <span>Active Speed: <strong className="text-emerald-300">{formatSpeed(globalSpeed)}</strong></span>
-                <span>Total Queue: <strong className="text-emerald-300">{formatBytes(totalQueueDownloaded)} / {formatBytes(totalQueueSize)}</strong></span>
-              </div>
-
-              {downloads.length === 0 ? (
-                <div className="border border-dashed border-emerald-900/60 rounded-xl p-12 text-center bg-[#030805]">
-                  <div className="w-12 h-12 rounded border border-emerald-800 bg-[#06120a] flex items-center justify-center mx-auto mb-3 text-emerald-400">
-                    <Download className="w-5 h-5" />
-                  </div>
-                  <h3 className="text-sm font-bold text-emerald-300 mb-1">No downloads active</h3>
-                  <p className="text-xs text-emerald-600 max-w-sm mx-auto">
-                    Paste any direct download link above or click "Load 10MB Test File" to test the multi-segment download engine instantly.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {downloads.map((item) => {
-                    const ext = getFileExtension(item.filename);
-
-                    return (
-                      <div
-                        key={item.id}
-                        className="bg-[#040b07] border border-emerald-950 rounded-lg p-4 space-y-3 shadow-md"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-9 h-9 rounded bg-emerald-950 border border-emerald-800 flex items-center justify-center font-mono text-xs font-bold text-emerald-300 shrink-0">
-                              {ext.substring(0, 3)}
-                            </div>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-bold text-emerald-200 truncate" title={item.filename}>
-                                {item.filename}
-                              </h4>
-                              <div className="flex items-center gap-2 text-[11px] text-emerald-600 mt-0.5">
-                                <span>{formatBytes(item.downloadedBytes)} of {formatBytes(item.size)}</span>
-                                <span>·</span>
-                                <span>{item.percent}%</span>
-                                {item.status === 'downloading' && (
-                                  <>
-                                    <span>·</span>
-                                    <span className="text-emerald-300 font-bold">{formatSpeed(item.speedBytesPerSec)}</span>
-                                    <span>·</span>
-                                    <span>ETA {formatEta(item.etaSeconds)}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 self-end sm:self-center">
-                            {item.status === 'downloading' ? (
-                              <button
-                                onClick={async () => {
-                                  await bridge.pauseDownload(item.id);
-                                  setDownloads((prev) => prev.map((d) => d.id === item.id ? { ...d, status: 'paused', speedBytesPerSec: 0 } : d));
-                                }}
-                                className="p-2 bg-[#06140b] hover:bg-[#0c2415] text-amber-400 border border-emerald-800 rounded-md transition-colors"
-                                title="Pause"
-                              >
-                                <Pause className="w-3.5 h-3.5" />
-                              </button>
-                            ) : item.status === 'paused' || item.status === 'error' ? (
-                              <button
-                                onClick={async () => {
-                                  await bridge.resumeDownload(item.id);
-                                  setDownloads((prev) => prev.map((d) => d.id === item.id ? { ...d, status: 'downloading' } : d));
-                                }}
-                                className="p-2 bg-[#06140b] hover:bg-[#0c2415] text-emerald-400 border border-emerald-800 rounded-md transition-colors"
-                                title="Resume"
-                              >
-                                <Play className="w-3.5 h-3.5" />
-                              </button>
-                            ) : null}
-
-                            <button
-                              onClick={() => bridge.openFolder(item.saveDir)}
-                              className="p-2 bg-[#06140b] hover:bg-[#0c2415] text-emerald-400 border border-emerald-800 rounded-md transition-colors"
-                              title="Open Folder"
-                            >
-                              <FolderOpen className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              onClick={async () => {
-                                await bridge.cancelDownload(item.id);
-                                setDownloads((prev) => prev.filter((d) => d.id !== item.id));
-                              }}
-                              className="p-2 bg-[#06140b] hover:bg-rose-950/80 text-rose-400 border border-emerald-950 rounded-md transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Progress bar */}
-                        <div>
-                          <div className="flex items-center justify-between text-[11px] mb-1 font-mono">
-                            <span className="text-emerald-500 uppercase">
-                              {item.status === 'completed' ? 'Download Complete 100%' : item.status === 'downloading' ? `Downloading (${item.segments} chunks)...` : item.status}
-                            </span>
-                            <span className="text-emerald-300 font-bold">{item.percent}%</span>
-                          </div>
-                          <div className="h-2 w-full bg-[#020503] rounded-full overflow-hidden border border-emerald-950">
-                            <div
-                              style={{ width: `${item.percent}%` }}
-                              className={`h-full transition-all duration-300 rounded-full ${
-                                item.status === 'completed'
-                                  ? 'bg-emerald-400'
-                                  : 'bg-gradient-to-r from-emerald-600 to-[#00ff66]'
-                              }`}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </>
+        {activeTab === 'settings' && (
+          <SettingsModal
+            settings={settings}
+            onUpdateSettings={(updates) => {
+              setSettings((prev) => ({ ...prev, ...updates }));
+              if (updates.globalSpeedLimitKbps !== undefined) {
+                handleSetSpeedLimit(updates.globalSpeedLimitKbps);
+              }
+              if (updates.disableLanPeerDiscovery !== undefined || updates.quarantineExecutables !== undefined) {
+                bridge.updateSecurityPolicy(updates);
+              }
+              addToast('Configuration updated', 'success');
+            }}
+          />
         )}
       </main>
+
+      {/* Add Links Modal */}
+      <AddLinksModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSubmit={handleAddLinksSubmit}
+        saveDirectory={settings.defaultSaveDir}
+      />
+
+      {/* Checksum Verification Modal */}
+      <ChecksumModal
+        isOpen={Boolean(checksumModalItem)}
+        item={checksumModalItem}
+        onClose={() => setChecksumModalItem(null)}
+        onVerify={async (filePath, algorithm, expectedHash) => {
+          return await bridge.verifyChecksum(filePath, algorithm, expectedHash, checksumModalItem?.id);
+        }}
+      />
     </div>
   );
 }
